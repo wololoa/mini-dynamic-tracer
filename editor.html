@@ -1,0 +1,978 @@
+
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <title>Mini dynamic tracer: Editor</title>
+        <style>
+            body {background-color:black}
+        </style>
+        <script src="libs/base.js"></script> <!-- taken from https://github.com/ertrzyiks/basejs -->
+        <script src="libs/micron.js"></script> <!-- taken from micronjs.github.io -->
+		<script src="libs/webgl-utils.js"></script> <!-- taken from http://www.html5rocks.com/en/tutorials/webgl/webgl_fundamentals/ -->
+		<script src="libs/dat.gui.js"></script> <!-- this is a custom version with a "removeFolder" function added -->
+		<!--link type="text/css" rel="stylesheet" href="libs/dat-gui-swec.css"--> <!-- uncomment this to see the "christmas edition" -->
+
+		<script src="src/textures.js"></script>
+
+		<script id="screen-vertex" type="x-shader/x-vertex">
+			attribute vec2 a_position;
+			void main()
+			{
+				gl_Position = vec4(a_position, 0, 1);
+			}
+		</script>
+
+		<script id="megatracer-frag" type="x-shader/x-fragment">
+
+			// https://www.shadertoy.com/view/ldl3zl
+			// Created by inigo quilez - iq/2013
+			// License Creative Commons Attribution-NonCommercial-ShareAlike 3.0 Unported License.
+			//#define USE_REFLECTIONS
+
+			precision mediump float;
+
+			//-----------------------------------------------------
+			// uniforms
+			//-----------------------------------------------------
+
+			uniform float u_time;
+			uniform vec3 u_camPos;
+			uniform vec3 u_camView;
+			uniform float u_camFov;
+			uniform vec3 u_sunPos;
+			uniform sampler2D u_texture1;
+			uniform sampler2D u_texture2;
+			// todo: move the textures to uniforms!
+			// __textures_uniforms_src__
+
+			__lights_uniforms_src__
+
+			//-----------------------------------------------------
+			// globals
+			//-----------------------------------------------------
+
+			vec2 resolution = vec2(__width__, __height__);
+
+			const int g_rayIterations = int(__rayRes__);
+			const int g_shadowIterations = int(__shadowRes__);
+			const int g_aoIterations = int(__aoRes__);
+
+			//-----------------------------------------------------
+			// helper functions
+			//-----------------------------------------------------
+
+			// todo: add this only if materials are needed!
+			vec4 texcube( sampler2D sam, in vec3 p, in vec3 n )
+			{
+				vec4 x = texture2D( sam, p.yz );
+				vec4 y = texture2D( sam, p.zx );
+				vec4 z = texture2D( sam, p.xy );
+				return x*abs(n.x) + y*abs(n.y) + z*abs(n.z);
+			}
+
+			const mat2 m2 = mat2( 0.80, -0.60, 0.60, 0.80 );
+
+			float fbm( vec2 p )
+			{
+				float f = 0.0;
+				f += 0.5000*texture2D( u_texture1, p/24.0 ).x; p = m2*p*2.02;
+				f += 0.2500*texture2D( u_texture1, p/16.0 ).x; p = m2*p*2.03;
+				f += 0.1250*texture2D( u_texture1, p/32.0 ).x; p = m2*p*2.01;
+				f += 0.0625*texture2D( u_texture1, p/64.0 ).x;
+				return f/0.9375;
+			}
+
+			float hash( float n )
+			{
+				return fract(sin(n)*43758.5453123);
+			}
+
+			vec3 hash3( float n )
+			{
+				return fract(sin(vec3(n,n+1.0,n+2.0))*vec3(43758.5453123,22578.1459123,19642.3490423));
+			}
+
+
+			float noise( in vec3 x )
+			{
+				vec3 p = floor(x);
+				vec3 f = fract(x);
+				f = f*f*(3.0-2.0*f);
+
+				vec2 uv = (p.xy+vec2(37.0,17.0)*p.z) + f.xy;
+				vec2 rg = texture2D( u_texture1, (uv+ 0.5)/256.0, -100.0 ).yx;
+				return mix( rg.x, rg.y, f.z );
+			}
+
+			// todo: do we need them all?
+			float fbm4( vec3 p )
+			{
+				float f = 0.0;
+
+				f += 0.5000*noise( p ); p = p*2.02;
+				f += 0.2500*noise( p ); p = p*2.03;
+				f += 0.1250*noise( p ); ;
+
+				return f/0.9375;
+			}
+
+			//-----------------------------------------------------
+			// primitives
+			//-----------------------------------------------------
+			// BIG TODO: do the frucking objects!!!
+
+			float sdBox( in vec3 p, vec3 b )
+			{
+				vec3 d = abs(p) - b;
+				return min(max(d.x,max(d.y,d.z)),0.0) + length(max(d,0.0));
+			}
+
+			float suelo( in vec3 pos, out vec3 uvw )
+			{
+				uvw = pos;
+				return pos.y;
+			}
+
+			float pared( in vec3 pos, out vec3 uvw )
+			{
+				uvw = 4.0*pos;
+
+				float d1 = 0.6 + pos.z;
+				float d2 = 0.6 + pos.x;
+				d1 = min(d1,d2);
+
+				d1 = min( d1, sdBox( pos-vec3(0.0,2.0,0.0), vec3(1.5,0.05,1.5) ) );
+
+				return d1;
+			}
+
+
+			float melon( in vec3 p, out vec3 uvw )
+			{
+				vec3 c = p - vec3(0.0,0.215,0.0);
+
+				vec3 q = 3.0*c*vec3(1.0,1.5,1.5);
+				uvw = 3.0*c;
+
+				float r = 1.0 - 0.007*sin(30.0*(-c.x+c.y-c.z));
+				return 0.65*(length(q) - r)/3.0;
+			}
+
+			float manzana( in vec3 p, out vec3 uvw )
+			{
+				vec3 q = p - vec3(0.5,0.1,0.5);
+				float r = length(q.xz);
+				q.y += 0.05*(1.0-clamp(r/0.1,0.0,1.0));
+				q.y -= 0.03*(1.0-smoothstep(0.004,0.005,r));
+				uvw = 10.0*q;
+				return 0.4*(length(10.0*q) - 1.0)/10.0;
+			}
+
+
+			float uvas( in vec3 p, out vec3 uvw )
+			{
+				vec3 q = p - vec3(-0.1,0.1,0.6);
+				uvw = 10.0*q;
+
+				float d1 = length(q-vec3(-0.09,0.10,-0.07)) - 0.12;
+				float d2 = length(q-vec3( 0.11,0.05, 0.00)) - 0.09;
+				float d3 = length(q-vec3(-0.07,0.03, 0.10)) - 0.10;
+
+				return min(d1,min(d2,d3));
+			}
+
+
+
+			float lemon( in vec3 p, out vec3 uvw )
+			{
+				vec3 q = p - vec3(0.7,sin(u_time*0.1),0.2);
+				uvw = 10.0 * q;
+				float s = 1.35/2.0;
+				float r = clamp( (abs(q.x)-0.00)/(0.077-0.00), 0.0, 1.0 );
+				s += 2.5* pow(r,24.0);
+				q *= vec3(1.0,s,s);
+				return 0.5*(length(12.0*q) - 1.0)/(12.0*s);
+			}
+
+			float jarron( in vec3 p, out vec3 uvw )
+			{
+				vec3 q = p - vec3(-0.1,0.28,0.6);
+				uvw = q;
+
+				float d1 = (length(3.5*q)-1.00)/3.5;
+				float d2 = q.y + 0.1;
+				float d3 = (length(3.5*q)-0.95)/3.5;
+
+				d1 = max(  d1, d2 );
+				d1 = max( -d3, d1 );
+
+				return d1;
+			}
+
+			float mantelito( in vec3 p, out vec3 uvw )
+			{
+				vec3 q = p - vec3(-0.1,0.001,0.65);
+
+				q.xz += 0.1*vec2( 0.7*sin(6.0*q.z+2.0)+0.3*sin(12.0*q.x+5.0),
+								  0.7*sin(6.0*q.x+0.7)+0.3*sin(12.0*q.z+3.0) );
+
+				q.xz = m2*q.xz;
+				uvw = q;
+
+				q.y -= 0.010*(0.5-0.5*sin( 40.0*q.x )*sin( 5.0*q.z ));
+
+				return length(max(abs(q)-vec3(0.3,0.001,0.3),0.0))-0.0005;
+			}
+
+			float botella( in vec3 p, out vec3 uvw )
+			{
+				vec3 q = p - vec3(-0.35,0.0,0.3);
+
+				vec2 w = vec2( length(q.xz), q.y );
+
+				float d1 = length( q - vec3(0.0, 0.8,0.0) );
+				float d2 = length( q - vec3(0.0,-0.1,0.0) );
+
+				uvw = q;
+
+				float r = 1.0 - 0.8*pow(smoothstep( 0.5, 0.6, q.y ),4.0);
+				r += 0.1 * smoothstep( 0.650, 0.66, q.y );
+				r *= 1.0 - smoothstep( 0.675, 0.68, q.y );
+
+				return min( min( d1, d2),(w.x - 0.11*r)*0.5 );
+			}
+
+			//-----------------------------------------------------
+			// material helpers
+			//-----------------------------------------------------
+
+			float lemonBump( in vec3 pos )
+			{
+				 return fbm4( pos*24.0 );
+			}
+
+			vec4 manzanaColor( in vec3 pos, in vec3 nor, out vec3 bnor )
+			{
+				/*
+				float spe = 1.0;
+				bnor = vec3( 0.0 );
+
+				float a = atan(pos.x,pos.z);
+				float r = length(pos.xz);
+
+				// red
+				vec3 col = vec3(1.0,0.05,0.0);
+
+				// green
+				float f = smoothstep( 0.4, 1.0, fbm4(pos.xzy*0.8) );
+				col = mix( col, vec3(1.0,0.6,0.1), f );
+
+				// dirty
+				col *= 0.75+0.25*fbm4(pos*4.0);
+
+				// frekles
+				f = smoothstep( 0.6, 1.0, fbm4(pos*48.0) );
+				col = mix( col, vec3(0.9,0.9,0.6), f*0.5 );
+
+				// stripes
+				f = smoothstep( -0.6,1.0, noise( vec3(a*7.0 + pos.z,0.5*pos.y,pos.x)*2.0));
+				f *= smoothstep(-0.5,1.0,pos.y + 0.75*(noise(4.0*pos.zyx)-0.5) );
+				col = mix( col, vec3(0.4,0.2,0.0), 0.75*f );
+				spe *= 1.0-f;
+
+				// top
+				f = 1.0-smoothstep( 0.14, 0.2, r );
+				col = mix( col, vec3(0.2,0.18,0.15)*0.5, f );
+
+				return vec4(0.5*col,spe);
+				*/
+
+				return texcube( u_texture2, pos, nor * lemonBump(pos) * lemonBump(pos) ) * vec4(0.93, 0.2, 0.01, 1.0);
+			}
+
+			float orangesBump( in vec3 pos )
+			{
+				float f = fbm4( pos*16.0 );
+				return f*f;
+			}
+			vec4 orangesColor( in vec3 pos, in vec3 nor, out vec3 bnor )
+			{
+				bnor = vec3( 0.0 );
+
+				vec2 e = vec2( 0.001, 0.0 );
+				float re = orangesBump( pos );
+				bnor = 0.07*normalize( vec3(orangesBump( pos+e.xyy ) - re,
+											orangesBump( pos+e.yxy ) - re,
+											orangesBump( pos+e.yyx ) - re ) );
+
+				vec3 col = vec3(0.7,0.2,0.0);
+
+				col = mix( col, vec3(0.7,0.35,0.05), fbm4( pos ) );
+
+				return vec4( 0.6*col, 1.0 );
+			}
+
+			vec4 mantelitoColor( in vec3 pos, in vec3 nor, out vec3 bnor )
+			{
+				 bnor = vec3( 0.0 );
+
+
+				vec3 col = vec3(1.0,0.9,0.8);
+				float f = smoothstep( 0.3, 0.4, sin(180.0*pos.x) );
+				col = mix( col, vec3(0.7,0.4,0.0), f );
+
+				f = smoothstep( 0.3, 0.4, sin(180.0*pos.z)*sign(sin(180.0*pos.x)) );
+				col = mix( col, vec3(0.0,0.2,0.6), f );
+
+				f = smoothstep(-0.3,0.0,fbm4(6.0*pos));
+				col *= 0.8 + 0.2*f;
+
+				return vec4( 0.3*col, 0.0 );
+			}
+
+			vec4 lemonColor( in vec3 pos, in vec3 nor, out vec3 bnor )
+			{
+				bnor = vec3( 0.0 );
+
+				vec2 e = vec2( 0.001, 0.0 );
+				float re = lemonBump( pos );
+				bnor = 0.07*normalize( vec3(lemonBump( pos+e.xyy ) - re,
+										   lemonBump( pos+e.yxy ) - re,
+										   lemonBump( pos+e.yyx ) - re ) );
+
+				vec3 col = vec3(1.0,0.8,0.0);
+
+				col = mix( col, vec3(0.3,0.3,0.02), smoothstep( 0.75, 0.82, abs(pos.x) ) );
+
+				return vec4( 0.3*col, 1.0 );
+			}
+
+			vec4 botleColor( in vec3 pos, in vec3 nor, out vec3 bnor )
+			{
+				float spe = 1.0;
+				bnor = vec3( 0.0 );
+
+				vec3 col = 0.2*vec3(0.6,0.3,0.3);
+
+				float f = smoothstep( 0.2, 0.21, pos.y ) - smoothstep( 0.39, 0.40, pos.y );
+				f *= smoothstep( 0.0, 0.01, pos.z );
+				col = mix( col, vec3(0.13,0.12,0.10), f );
+				spe *= 1.0-f;
+
+				float g = (smoothstep( 0.220, 0.225, pos.y ) - smoothstep( 0.375, 0.38, pos.y ))*smoothstep( 0.010, 0.02, pos.z );
+				float h = (smoothstep( 0.230, 0.235, pos.y ) - smoothstep( 0.365, 0.37, pos.y ))*smoothstep( 0.025, 0.03, pos.z );
+				col *= 1.0-0.7*(g-h);
+
+				return vec4( col*0.6, spe );
+			}
+
+
+			vec4 melonColor( in vec3 pos, in vec3 nor, out vec3 bnor )
+			{
+
+				return texcube( u_texture2, pos, nor ) * vec4(0.03, 0.02, 1.0, 1.0);
+
+				/*
+				bnor = vec3( 0.0 );
+
+				float a = atan(pos.y,pos.z);
+				float r = length(pos.xz);
+
+				// lightGreenBase
+				vec3 col = vec3(0.4,.8,0.1);
+
+				// darkGreenBase
+				float f = smoothstep( -0.7, 0.6, fbm4(pos*4.0) );
+				col = mix( col, vec3(0.01,.3,0.05), f );
+
+				// dirty
+				col *= 0.8+0.2*smoothstep( -1.0, 1.0, fbm4(pos*4.0) );
+
+				// dirty
+				col *= 0.5+0.5*smoothstep( -0.44, -0.3, fbm4(pos*64.0) );
+
+				// frekles
+				f = smoothstep( 0.3, 0.6, fbm4(pos*60.0) );
+				col = mix( col, vec3(0.71,0.85,0.4), f*0.4 );
+
+				// stripes
+				float q = 0.5 + 0.5*fbm4(30.0*pos);
+				f = fbm4( vec3(a*10.0 + pos.z + 1.4*q,1.5*pos.y,3.5*pos.x)*1.5);
+				f = smoothstep( -0.5,0.7,f);
+				col = mix( col, vec3(0.01,0.1,0.01), f );
+
+				return vec4( 1.2*col, 1.0 );
+				*/
+			}
+
+			float floorBump( in vec2 pos, out vec2 id )
+			{
+				float w  = 0.015;
+				float y  = mod( pos.x*8.0, 1.0 );
+				float iy = floor( pos.x*8.0 );
+				float x  = mod( pos.y*1.0 + sin(iy)*8.0, 1.0 );
+				float f  = smoothstep( 0.0, w,     y ) - smoothstep( 1.0-w,     1.0, y );
+					  f *= smoothstep( 0.0, w/8.0, x ) - smoothstep( 1.0-w/8.0, 1.0, x );
+				id = vec2( iy, floor(pos.y*1.0 + sin(iy)*8.0) );
+				return f;
+			}
+
+			vec4 floorColor( in vec3 pos, in vec3 nor, out vec3 bnor )
+			{
+				bnor = vec3( 0.0 );
+
+				vec2 id;
+				vec2 tmp;
+				float er = floorBump( pos.xz, id );
+
+
+				vec2 e = vec2( 0.005, 0.0 );
+				bnor = vec3( -(floorBump( pos.xz+e.xy, tmp ) - er), 150.0*e.x,
+							 -(floorBump( pos.xz+e.yx, tmp ) - er) );
+				bnor = normalize(bnor);
+
+
+				vec3 col = vec3(0.6,0.4,0.3)*0.6;
+
+				float f = 0.5+0.5*fbm4( 16.0*pos*vec3(6.0,0.0,0.5)+vec3(id,0.0) );
+				col = mix( col, vec3(0.4,0.2,0.1)*0.56, f );
+
+				col *= 0.85 + 0.15*fbm4( 8.0*pos );
+				col *= 0.50 + 0.50*er;
+
+				col *= 1.0 + 0.2*sin(32.0*(id.x-id.y));
+				col += 0.01*sin( vec3(0.0,1.0,2.0)+32.0*(id.x+id.y) );
+
+				return vec4( col, 2.0 ); // + (texcube(u_texture2, pos, nor) * 0.5);
+				//return texcube(u_texture2, pos, nor) * 0.01;
+				//return vec4(0.43, 0.31, 0.29, 3.0);
+			}
+
+			float paredBump( in vec2 pos )
+			{
+				float y = mod( pos.y*1.0, 1.0 );
+				float f = smoothstep( 0.0, 0.025, y ) - smoothstep( 0.975, 1.0, y );
+				float ox = 0.5*mod(floor(pos.y*1.0),2.0);
+				float x = mod( pos.x*1.0 + ox, 1.0 );
+				f *= smoothstep( 0.0, 0.025, x ) - smoothstep( 0.975, 1.0, x );
+
+				return f;
+			}
+
+			vec4 paredColor( in vec3 pos, in vec3 nor, out vec3 bnor )
+			{
+				float spe = 1.0;
+				bnor = vec3( 0.0 );
+
+				vec2 qpos = pos.xy;
+				if( abs(nor.x)>0.5 ) qpos = pos.zy;
+
+
+				vec2 e = vec2( 0.01, 0.0 );
+				float er = paredBump( qpos );
+				bnor = vec3(-(paredBump( qpos+e.xy ) - er),
+							-(paredBump( qpos+e.yx ) - er),
+							1.0*e.x );
+				if( abs(nor.x)>0.5 ) bnor=bnor.zyx;
+				bnor = 1.0*normalize( bnor );
+
+
+
+				vec3 col = vec3(1.0,0.8,0.7);
+
+				col *= 0.9+0.1*fbm4( pos*vec3(20.0,0.0,20.0) );
+
+				float y = mod( pos.y*1.0, 1.0 );
+				float f = smoothstep( 0.5, 0.9, y );
+
+				f *= fbm4(pos*2.0);
+				spe *= 1.0-f;
+				vec3 dirt = col*0.05;
+				col = mix( col, dirt, f );
+
+				return vec4( 0.6*col, spe );
+			}
+
+			float jarronBump( in vec3 pos )
+			{
+				 return 0.9*fbm4( pos*vec3( 0.0,48.0, 0.0) ) +
+						0.1*fbm4( pos*128.0 );
+			}
+
+			vec4 jarronColor( in vec3 pos, in vec3 nor, out vec3 bnor )
+			{
+				bnor = vec3( 0.0 );
+			/*
+				vec2 e = vec2( 0.001, 0.0 );
+
+				float re = jarronBump( pos );
+				bnor = 0.2*normalize( vec3(jarronBump( pos+e.xyy ) - re,
+										   jarronBump( pos+e.yxy ) - re,
+										   jarronBump( pos+e.yyx ) - re ) );
+			*/
+				vec3 col = vec3(0.5,0.3,0.1);
+
+				col *= 0.2 + 0.8*smoothstep(0.0,1.0,fbm4( pos*vec3(0.0,24.0,0.0) ));
+
+				return vec4( 0.4*col, 0.5 );
+			}
+
+			float map( in vec3 p, out vec4 muvw )
+			{
+				float resT = 1000.0;
+				vec4  resM = vec4(-1.0);
+
+				vec3 mati = vec3(0.0);
+
+				float dis = suelo( p, mati );
+				if( dis<resT ) { resT=dis; resM=vec4(1.0,mati); }
+
+				//dis = pared( p, mati );
+				//if( dis<resT ) { resT=dis; resM=vec4(5.0,mati); }
+
+				//dis = jarron( p, mati );
+				//if( dis<resT ) { resT=dis; resM=vec4(4.0,mati); }
+
+				//dis = mantelito( p, mati );
+				//if( dis<resT ) { resT=dis; resM=vec4(9.0,mati); }
+
+				dis = melon( p, mati );
+				if( dis<resT ) { resT=dis; resM=vec4(2.0,mati); }
+
+				dis = manzana( p, mati );
+				if( dis<resT ) { resT=dis; resM=vec4(3.0,mati); }
+
+				dis = lemon( p, mati );
+				if( dis<resT ) { resT=dis; resM=vec4(6.0,mati); }
+
+				//dis = botella( p, mati );
+				//if( dis<resT ) { resT=dis; resM=vec4(7.0,mati); }
+
+				//dis = uvas( p, mati );
+				//if( dis<resT ) { resT=dis; resM=vec4(8.0,mati); }
+
+				muvw = resM;
+				return resT;
+			}
+
+			//-----------------------------------------------------
+			// AREA LIGHTS TESTS!!!! - todo: move this to the lighting block
+			//-----------------------------------------------------
+
+			float sphereRad = 6.5;
+			vec3 spherePos = vec3(-2.0, sin(u_time)* 4.4, -24.0);
+			float tubeRad = 2.2;
+			vec3 tubeStart = vec3(-2.0, sin(u_time), -3.3);
+			vec3 tubeEnd = vec3(-5.0, cos(u_time) + 3.2, -1.5);
+
+			float specTrowbridgeReitz( float HoN, float a, float aP )
+			{
+				float a2 = a * a;
+				float aP2 = aP * aP;
+				return ( a2 * aP2 ) / pow( HoN * HoN * ( a2 - 1.0 ) + 1.0, 2.0 );
+			}
+
+			float visSchlickSmithMod( float NoL, float NoV, float r )
+			{
+				float k = pow( r * 0.5 + 0.5, 2.0 ) * 0.5;
+				float l = NoL * ( 1.0 - k ) + k;
+				float v = NoV * ( 1.0 - k ) + k;
+				return 1.0 / ( 4.0 * l * v );
+			}
+
+			float fresSchlickSmith( float HoV, float f0 )
+			{
+				return f0 + ( 1.0 - f0 ) * pow( 1.0 - HoV, 5.0 );
+			}
+
+			float sphereLight( vec3 pos, vec3 N, vec3 V, vec3 r, float f0, float roughness, float NoV, out float NoL )
+			{
+				vec3 L				= spherePos - pos;
+				vec3 centerToRay	= dot( L, r ) * r - L;
+				vec3 closestPoint	= L + centerToRay * clamp( sphereRad / length( centerToRay ), 0.0, 1.0 );
+				vec3 l				= normalize( closestPoint );
+				vec3 h				= normalize( V + l );
+
+				NoL				= clamp( dot( N, l ), 0.0, 1.0 );
+				float HoN		= clamp( dot( h, N ), 0.0, 1.0 );
+				float HoV		= dot( h, V );
+
+				float distL		= length( L );
+				float alpha		= roughness * roughness;
+				float alphaPrime	= clamp( sphereRad / ( distL * 2.0 ) + alpha, 0.0, 1.0 );
+
+				float specD		= specTrowbridgeReitz( HoN, alpha, alphaPrime );
+				float specF		= fresSchlickSmith( HoV, f0 );
+				float specV		= visSchlickSmithMod( NoL, NoV, roughness );
+
+				return specD * specF * specV * NoL;
+			}
+
+			float tubeLight( vec3 pos, vec3 N, vec3 V, vec3 r, float f0, float roughness, float NoV, out float NoL )
+			{
+				vec3 L0			= tubeStart - pos;
+				vec3 L1			= tubeEnd - pos;
+				float distL0	= length( L0 );
+				float distL1	= length( L1 );
+
+				float NoL0		= dot( L0, N ) / ( 2.0 * distL0 );
+				float NoL1		= dot( L1, N ) / ( 2.0 * distL1 );
+				NoL				= ( 2.0 * clamp( NoL0 + NoL1, 0.0, 1.0 ) )
+								/ ( distL0 * distL1 + dot( L0, L1 ) + 2.0 );
+
+				vec3 Ld			= L1 - L0;
+				float RoL0		= dot( r, L0 );
+				float RoLd		= dot( r, Ld );
+				float L0oLd 	= dot( L0, Ld );
+				float distLd	= length( Ld );
+				float t			= ( RoL0 * RoLd - L0oLd )
+								/ ( distLd * distLd - RoLd * RoLd );
+
+				vec3 closestPoint	= L0 + Ld * clamp( t, 0.0, 1.0 );
+				vec3 centerToRay	= dot( closestPoint, r ) * r - closestPoint;
+				closestPoint		= closestPoint + centerToRay * clamp( tubeRad / length( centerToRay ), 0.0, 1.0 );
+				vec3 l				= normalize( closestPoint );
+				vec3 h				= normalize( V + l );
+
+				float HoN		= clamp( dot( h, N ), 0.0, 1.0 );
+				float HoV		= dot( h, V );
+
+				float distLight	= length( closestPoint );
+				float alpha		= roughness * roughness;
+				float alphaPrime	= clamp( tubeRad / ( distLight * 2.0 ) + alpha, 0.0, 1.0 );
+
+				float specD		= specTrowbridgeReitz( HoN, alpha, alphaPrime );
+				float specF		= fresSchlickSmith( HoV, f0 );
+				float specV		= visSchlickSmithMod( NoL, NoV, roughness );
+
+				return specD * specF * specV * NoL;
+			}
+
+			vec3 areaLights( vec3 pos, vec3 nor, vec3 rd )
+			{
+				/*
+				float noise		=  texture2D( iChannel1, pos.xz ).x * 0.5;
+				noise			+= texture2D( iChannel1, pos.xz * 0.5 ).y;
+				noise			+= texture2D( iChannel1, pos.xz * 0.25 ).z * 2.0;
+				noise			+= texture2D( iChannel1, pos.xz * 0.125 ).w * 4.0;
+				*/
+
+				float n = noise(pos);
+
+
+				vec3 albedo		= pow( texture2D( u_texture1, pos.xz ).xyz, vec3( 2.2 ) );
+				albedo			= mix( albedo, albedo * 1.3, n * 0.35 - 1.0 );
+				float roughness = 0.7 - clamp( 0.5 - dot( albedo, albedo ), 0.05, 0.95 );
+				float f0		= 0.3;
+
+				//#ifdef DISABLE_ALBEDO
+				//albedo			= vec3(0.1);
+				//#endif
+				//#ifdef DISABLE_ROUGHNESS
+				//roughness		= 0.05;
+				//#endif
+
+				vec3 v			= -normalize( rd );
+				float NoV		= clamp( dot( nor, v ), 0.0, 1.0 );
+				vec3 r			= reflect( -v, nor );
+
+				float NdotLSphere;
+				float specSph	= sphereLight( pos, nor, v, r, f0, roughness, NoV, NdotLSphere );
+
+				float NdotLTube;
+				float specTube	= tubeLight( pos, nor, v, r, f0, roughness, NoV, NdotLTube );
+
+				//vec3 color		= albedo * 0.3183 * ( NdotLSphere + NdotLTube ) + specSph + specTube;
+				vec3 color		= albedo * 0.3183 * ( NdotLSphere ) + specSph;
+				return pow( color, vec3( 1.0 / 2.2 ) );
+			}
+
+			//-----------------------------------------------------
+			// raymarcher functions
+			//-----------------------------------------------------
+
+			vec4 calcColor( in vec4 muvw, in vec3 pos, in vec3 nor, in vec3 rd, out vec3 bnor )
+			{
+				vec4 surfaceColor = vec4(0.0);
+					 if( muvw.x < 1.5 ) surfaceColor = floorColor(     muvw.yzw, nor * lemonBump( pos ) * 10.0, bnor ); // + vec4(areaLights(pos, nor, rd), 1.0);
+				else if( muvw.x < 2.5 ) surfaceColor = melonColor(     muvw.yzw, nor, bnor );
+				else if( muvw.x < 3.5 ) surfaceColor = manzanaColor(   muvw.yzw, nor, bnor );
+				else if( muvw.x < 4.5 ) surfaceColor = jarronColor(    muvw.yzw, nor, bnor );
+				else if( muvw.x < 5.5 ) surfaceColor = paredColor(     muvw.yzw, nor, bnor );
+				else if( muvw.x < 6.5 ) surfaceColor = lemonColor(     muvw.yzw, nor, bnor );
+				else if( muvw.x < 7.5 ) surfaceColor = botleColor(     muvw.yzw, nor, bnor );
+				else if( muvw.x < 8.5 ) surfaceColor = orangesColor(   muvw.yzw, nor, bnor );
+				else                    surfaceColor = mantelitoColor( muvw.yzw, nor, bnor );
+
+				surfaceColor.a = /*length(nor) */ 20.0; // specular power or something
+				surfaceColor.rgb += areaLights( pos, nor, rd ) * 0.10; // (muvw.x*0.15); // arealight specular influence or something
+				////surfaceColor = clamp(surfaceColor, 0.0, 1.0);
+				////surfaceColor.a = 0.0;
+				return surfaceColor;
+			}
+
+			float intersect( in vec3 ro, in vec3 rd, out vec4 info )
+			{
+				float precis = 0.001; // 0.001
+				float h = 1.0;
+				float t = 0.0;
+				for( int i=0; i<g_rayIterations; i++ )
+				{
+					if( h<precis ) continue;//break;
+					h = map( ro+rd*t, info );
+					t += h;
+				}
+
+				return t;
+			}
+
+			vec3 calcNormal( in vec3 pos )
+			{
+				vec3 eps = vec3(0.002,0.0,0.0);
+				vec4 kk;
+				return normalize( vec3(
+					   map(pos+eps.xyy,kk) - map(pos-eps.xyy,kk),
+					   map(pos+eps.yxy,kk) - map(pos-eps.yxy,kk),
+					   map(pos+eps.yyx,kk) - map(pos-eps.yyx,kk) ) );
+			}
+
+			float softshadow( in vec3 ro, in vec3 rd, float k )
+			{
+				float res = 1.0;
+				float t = 0.001;
+				float h = 1.0;
+				vec4 kk;
+				for( int i=0; i<g_shadowIterations; i++ )
+				{
+					h = map(ro + rd*t,kk);
+					res = min( res, smoothstep(0.0,1.0,k*h/t) );
+					t += clamp( h, 0.02, 2.0 );
+				}
+				return clamp(res,0.0,1.0);
+			}
+
+			float calcAO( in vec3 pos, in vec3 nor )
+			{
+				float totao = 0.0;
+				for( int aoi=0; aoi<g_aoIterations; aoi++ )
+				{
+					vec4 kk;
+					vec3 aopos = -1.0+2.0*hash3(float(aoi) * 213.47);
+					aopos = aopos*aopos*aopos;
+					aopos *= sign( dot(aopos,nor) );
+					float dd = clamp( map( pos + nor*0.015 + 0.15*aopos, kk )*float(g_aoIterations), 0.0, 1.0 );
+					totao += dd;
+				}
+				totao /= float(g_aoIterations);
+
+				return clamp( totao*totao*1.0, 0.0, 1.0 );
+			}
+
+			//-----------------------------------------------------
+			// ligthing
+			//-----------------------------------------------------
+
+			vec3 pointLight(in vec3 pos, in vec3 lightPos, in vec3 color, in float size, in float intensity)
+			{
+				float d  = length( lightPos - pos );
+				float maxDistance = pow( size, 0.20); // todo: put this shit somewhere else? like some "general light config" ???
+				float quadDistance = pow( d, 0.23);
+				float quadIntensity = 1.0 - min( quadDistance, maxDistance ) / maxDistance;
+				return (quadIntensity * color) * intensity;
+			}
+
+			float directLighting( in vec3 pos, in vec3 nor )
+			{
+				vec3 ww = normalize( u_sunPos ); //lig; - old remnants
+				vec3 uu = normalize( cross(ww, vec3(0.0,1.0,0.0)) );
+				vec3 vv = normalize( cross(uu,ww) );
+
+				float shadowIntensity = softshadow( pos+0.01*nor, u_sunPos, 10.0 ); // rlight
+
+				vec3 toLight = u_sunPos - pos; // rlight
+				float att = smoothstep( 0.985, 0.997, dot(normalize(toLight), u_sunPos)); //lig) );
+				vec3 pp = pos - ww*dot(pos,ww);
+				vec2 uv = vec2( dot(pp,uu), dot(pp,vv) );
+				float pat = smoothstep( -0.5, 0.5, sin(10.0*uv.y) );
+
+				return /*pat */ att * shadowIntensity;
+			}
+
+			//-----------------------------------------------------
+			// postprocessing
+			//-----------------------------------------------------
+
+			//Reinhard based tone mapping
+			vec3 tone(vec3 color, float gamma)
+			{
+				float white = 2.;
+				float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
+				float toneMappedLuma = luma * (1. + luma / (white*white)) / (1. + luma);
+				color *= toneMappedLuma / luma;
+				color = pow(color, vec3(1. / gamma));
+				return color;
+			}
+
+			vec3 lensFlare( vec3 ray, vec3 lightCol, vec3 light, float lightVisible, float sky, vec2 fragCoord )
+			{
+				vec2 dirtuv = fragCoord.xy/resolution.x;
+
+				float dirt = 1.0 - texture2D( u_texture1, dirtuv ).r;
+				float l = (dot(light,ray)*.5+.5);
+
+				return ( ((pow(l,30.0)+.05)*dirt*0.1 + 1.0*pow(l,200.0))*lightVisible + sky*1.0*pow(l,5000.0) )*lightCol
+						+ 5.0*pow(smoothstep(.9999,1.0,l),20.0) * lightVisible * normalize(lightCol);
+			}
+
+			void main()
+			{
+				vec2 q = gl_FragCoord.xy / resolution.xy;
+				vec2 p = -1.0 + 2.0 * q;
+				p.x *= resolution.x/resolution.y;
+
+				//-----------------------------------------------------
+				// camera
+				//-----------------------------------------------------
+
+				// position
+				vec3 ro = u_camPos;
+				vec3 ta = u_camView;
+
+				// matrix
+				vec3 ww = normalize( ta - ro );
+				vec3 uu = normalize( cross(ww,vec3(0.0, 1.0, 0.0) ) );
+				vec3 vv = normalize( cross(uu,ww));
+
+				// create view ray
+				vec3 rd = normalize( p.x*uu + p.y*vv + u_camFov*ww );
+
+				//-----------------------------------------------------
+				// render
+				//-----------------------------------------------------
+				vec3 col = vec3(0.0);
+				vec3 fac = vec3(1.0);
+				vec4 info;
+				float t = intersect(ro,rd,info);
+
+				#ifdef USE_REFLECTIONS
+				for( int j=0; j<2; j++ )
+				#endif
+				{
+					// raymarch
+					//vec4 info;
+					t = intersect(ro,rd,info);
+					#ifdef USE_REFLECTIONS
+					if( info.x < -0.5 )
+						break;
+					#endif
+
+					// geometry
+					vec3 pos = ro + t*rd;
+					vec3 nor = calcNormal(pos);
+					vec3 ref = reflect( rd, nor );
+
+					vec3 bno = vec3(0.0);
+					vec4 maa = calcColor( info, pos, nor, rd, bno );
+					nor = normalize( nor + bno );
+
+					vec3 sunNormalized = normalize(u_sunPos);
+
+					// lighting
+					float occ = calcAO(pos,nor) * 1.0; // perhaps the ao strength should be here and not as the ambient coefficient?
+					float bfl = clamp(-nor.y*0.8+0.2,0.0,1.0) * pow(clamp(1.0-pos.y/1.0,0.0,1.0),2.0);
+					float amb = __aoStrength__;
+					float bce = clamp( nor.y*0.8+0.2,0.0,1.0);
+					float dif = max(dot(nor,sunNormalized),0.0);
+					float bac = max(dot(nor,normalize(vec3(-sunNormalized.x, 0.0, -sunNormalized.z))),0.0);
+					float sha = directLighting( pos, nor )*(0.5+0.5*occ);
+					float fre = pow( clamp( 1.0 + dot(nor,rd), 0.0, 1.0 ), 3.01 );
+					float spe = max( 0.0, pow( clamp( dot(sunNormalized, reflect(rd,nor)), 0.0, 1.0), 4.0 ) );
+					float att = 0.1 + 0.9*smoothstep( 0.975, 0.997, dot(normalize(u_sunPos - pos), sunNormalized) ); // rlight / lig  - remnant
+
+					vec3 lin = vec3(0.0);
+
+					__lights_src__
+
+					__lights_final_src__
+
+					lin += 2.30*dif*vec3(2.00,1.80,1.30)*pow(vec3(sha),vec3(1.0,1.3,1.6)) ;
+					lin += 1.00*bac*vec3(0.40,0.35,0.30)*occ*att;
+					lin += 1.00*bfl*vec3(0.20,0.15,0.10)*occ*att;
+					lin += 1.00*bce*vec3(0.20,0.20,0.20)*occ*att;
+					lin += 1.00*amb*vec3(0.10,0.10,0.10)*occ*att;
+					lin += 1.00*fre*vec3(3.00,3.00,3.00)*occ*att*(0.25+0.75*dif*sha);
+					lin += 1.00*spe*vec3(3.00,3.00,3.00)*occ*att*dif*sha*maa.w;
+
+					// surface-light interacion
+					col += fac * (maa.xyz * lin + spe*spe*maa.w*occ*sha*dif*0.25);
+
+					// this is kinda broken atm
+					#ifdef USE_REFLECTIONS
+						fac *= maa.xyz* maa.w * 0.017; // * 0.5; //*(0.5 + 0.5*clamp(1.0+dot(rd,nor),0.0,1.0));
+						ro = pos + nor * 5.01;
+						rd = ref;
+					#endif
+				}
+
+				//-----------------------------------------------------
+				// sky
+				//-----------------------------------------------------
+
+				//float t = interesct( ro, rd, tmin, tmax );
+				if( t > 10.0 )
+				{
+					// sky
+					col = vec3(0.13,.155,0.18)*(1.0-0.8*rd.y)*0.9;
+
+					// sun
+					float sundot = clamp(dot(rd, normalize(u_sunPos)), 0.0, 1.0);
+					col += 2.5 * vec3(1.0,0.7,0.4) * pow( sundot, 35.0 ); // 1. power. 2. color. 3. size.
+					//col += 0.25*vec3(1.0,0.8,0.6)*pow( sundot,64.0 ); // other "rings"
+					//col += 0.2*vec3(1.0,0.8,0.6)*pow( sundot,512.0 );
+
+					// clouds - this has to be improved
+					vec2 sc = ro.xz + rd.xz*(1000.0-ro.y)/rd.y;
+					col = mix( col, vec3(1.0,0.95,1.0), 0.85 * smoothstep(0.35,0.8,fbm(0.0005*sc))); // noise(col)));
+
+					// horizon
+                    __horizon_src__
+
+					// fog - this is shit
+					//float fogFactor = exp(-pow(abs(0.23 * (gl_FragCoord.z - 1.5 + u_time)), 4.0)); // fogDensity = 0.23, 4.0 is the power
+					//fogFactor = clamp(fogFactor, 0.0, 1.0);
+					//col = mix(vec3(0.8, 0.2, 0.3), col, vec3(0.9, 0.1, 0.2));		// bgr col fog
+				}
+
+				//-----------------------------------------------------
+				// postprocessing
+				//-----------------------------------------------------
+				// lensflare - to be fixed
+				//vec3 lensFlare( vec3 ray, vec3 lightCol, vec3 light, float lightVisible, float sky, vec2 fragCoord )
+				//col += lensFlare(rd, vec3(0.3,0.55,0.8), light1, 2.0, -3.0, gl_FragCoord.xy);
+
+				// gamma
+				col = pow( clamp(col,0.0,1.0), vec3(0.35) );
+
+				// contrast
+				col = col * 0.5 + 0.5 *col*col*(3.0-2.0*col);
+
+				// desaturate
+				//col = mix( col, vec3(dot(col,vec3(0.33))), 0.25 );
+
+				// tinting
+				col *= vec3(1.1,1.05,0.95);
+
+				// vigneting
+				col *= 0.5 + 0.5 * pow( 16.0*q.x*q.y*(1.0-q.x)*(1.0-q.y), 0.5 );
+
+				gl_FragColor = vec4( col, 1.0 );
+			}
+
+		</script>
+
+    </head>
+    <body>
+        <script src="src/megashaders.js"></script>
+    </body>
+</html>
