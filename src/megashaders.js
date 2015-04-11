@@ -1,9 +1,10 @@
 
 // todo: move this thing to separate files pretty please
+// TODO: add something (like  *) close to the variables that are ALWAYS static
 
 var APP_WIDTH           = 840;
 var APP_HEIGHT          = 480;
-
+var APP_SCALE			= 1.4; // you will likely have to change this, sorry  :(
 var GLOBAL_OBJ_ID       = 0;
 var GLOBAL_LIGHT_ID     = 0;
 
@@ -88,9 +89,9 @@ var PointLight = GUIObject.extend({
 		f1.add(this, 'isEnabled').name('Enabled').onFinishChange( this.onPropertyChanged.bind(this) );
 
 		var f2 = f1.addFolder("Transform");
-		f2.add(this.position, 'x').onFinishChange( this.onPropertyChanged.bind(this) );
-		f2.add(this.position, 'y').onFinishChange( this.onPropertyChanged.bind(this) );
-		f2.add(this.position, 'z').onFinishChange( this.onPropertyChanged.bind(this) );
+		f2.add(this.position, 'x', -15.0, 15.0).onFinishChange( this.onPropertyChanged.bind(this) );
+		f2.add(this.position, 'y', -15.0, 15.0).onFinishChange( this.onPropertyChanged.bind(this) );
+		f2.add(this.position, 'z', -15.0, 15.0).onFinishChange( this.onPropertyChanged.bind(this) );
 
 		f1.add(this, 'size', 0.0, 10.0).name('Size').onFinishChange( this.onPropertyChanged.bind(this) );
 		f1.add(this, 'intensity').name('Intensity').onFinishChange( this.onPropertyChanged.bind(this) );
@@ -179,7 +180,9 @@ var Scene = GUIObject.extend({
 	shadowRes : 24.0,
 	aoRes : 6.0,
 	aoStrength : 8.0,
-
+    reflEnabled : false,
+    reflRes : 2.0,
+    
 	// ---------- CAMERA ----------
 	cameraPosition : null,
 	cameraView : null,
@@ -284,6 +287,8 @@ var Scene = GUIObject.extend({
 		f1.add(this, 'shadowRes', 1.0, 128.0).name("Softshadow res").onFinishChange( this.onPropertyChanged.bind(this) );
 		f1.add(this, 'aoRes', 1.0, 128.0).name("AO res").onFinishChange( this.onPropertyChanged.bind(this) );
 		f1.add(this, 'aoStrength', 0.0, 50.0).name("AO strength").onFinishChange( this.onPropertyChanged.bind(this) );
+        f1.add(this, 'reflEnabled').name("Refl. enabled").onFinishChange( this.onPropertyChanged.bind(this) );
+        f1.add(this, 'reflRes', 1.0, 64.0).name("Refl. resolution").onFinishChange( this.onPropertyChanged.bind(this) );
 		//f1.open();
 
 		// todo: bring a good fps cam pretty please
@@ -328,7 +333,7 @@ var Scene = GUIObject.extend({
 		f33.open();
 
 		//this.addPointLight();
-
+        //this.recompile = true;
 	},
 
 	// one day I will have to read this shit to remember why in all heavens I'm not just executing a callback
@@ -430,6 +435,16 @@ var Scene = GUIObject.extend({
 	//------------------------------------------------
 	// src
 
+    getReflEnabledSrc : function()
+    {
+        var src = '';
+        if(this.reflEnabled)
+        {
+            src = '			#define USE_REFLECTIONS';
+        }
+        return src;
+    },
+    
 	getLightsUniforms : function()
 	{
 		var src = '';
@@ -770,7 +785,9 @@ var Tracer = Entity.extend({
 																			__rayRes__ : 			this.scene.rayRes,
 																			__shadowRes__ : 		this.scene.shadowRes,
 																			__aoRes__ : 			this.scene.aoRes,
-																			__aoStrength__ : 		this.scene.aoStrength,
+																			__aoStrength__ : 		this.scene.aoStrength,    
+                                                                            __reflEnabled_src__:    this.scene.getReflEnabledSrc(),
+                                                                            __reflRes__:            this.scene.reflRes,
 
                                                                             __horizon_src__ :    	this.scene.getHorizonSrc(),
 
@@ -842,6 +859,9 @@ var Tracer = Entity.extend({
         this.canvas.style.top       = Graphics.canvas.style.top;
 
 		if(this.scene.shouldRecompile()) this.reloadShader();
+		
+		Graphics.reposition(0, 0);
+		Graphics.rescale(Graphics.width * APP_SCALE, Graphics.height * APP_SCALE);
     },
 
     draw : function()
