@@ -5,13 +5,14 @@
  * It contains all the configuration parameters + objects and lights.
  */
 // TODO: move each subsection to its separated object
+// TODO: save to storage the last thing you did! all the parameters!
 var Scene = GUIObject.extend({
 
 	// ---------- GLOBALS ----------
     // TODO: SCENE PRESETS!!! (like cornel, empty, etc)
 	// TODO: LOAD AND SAVE SCENE!
-	width : 840,
-	height : 480,
+	width : APP_WIDTH,
+	height : APP_HEIGHT,
 	rayRes : 64.0,
 	shadowRes : 24.0,
 	aoRes : 6.0,
@@ -100,8 +101,8 @@ var Scene = GUIObject.extend({
 	constructor : function(gui)
 	{
 		this.bgrColor = [ 255, 255, 255 ];
-		this.sunLightPos = { x: 0.5, y: 3.5, z: 0.0 };
-		this.cameraPosition = { x: 0.5, y: 0.8, z: 2.5 };
+		this.sunLightPos = { x: -19.5, y: 3.5, z: -25.0 };
+		this.cameraPosition = { x: 0.9, y: 0.3, z: 1.5 };
 		this.cameraView = {x: 0.0, y: 0.2, z: 0.1 };
         this.horizonColor = [ 255, 255, 255 ];
         this.lights = [];

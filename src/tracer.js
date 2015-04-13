@@ -10,6 +10,7 @@ var Tracer = Entity.extend({
 	buffer : null,
 	texture1 : null, // change to "textures" array/map!!!
 	texture2 : null,
+    textureFlare : null,
     compilationSucceeded : false,
 
 	gui : null,
@@ -37,9 +38,10 @@ var Tracer = Entity.extend({
 
 		this.gl.viewport(0, 0, Graphics.width, Graphics.height);
 
+        this.textureFlare = new TextureGL(this.gl, 'lensFlare');               
 		this.texture2 = new TextureGL(this.gl, 'rock'); //, Graphics.getImage('rock'));
 		this.texture1 = new TextureGL(this.gl, 'noise2');
-
+        
         this.canvas.style.width = Graphics.canvas.style.width;
         this.canvas.style.height = Graphics.canvas.style.height;
         this.canvas.style.left = Graphics.canvas.style.left;
@@ -234,15 +236,23 @@ var Tracer = Entity.extend({
 		this.gl.uniform3f(sunPosLocation, this.scene.sunLightPos.x, this.scene.sunLightPos.y, this.scene.sunLightPos.z);
 
 		//--------------------------------------
-		// textures
-		this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture1.get());
+		// textures               
 		var texture1Location = this.gl.getUniformLocation(this.program, "u_texture1")
-		this.gl.uniform1i(texture1Location, this.texture1.get());
-
-		this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture2.get());
+		this.gl.uniform1i(texture1Location, 0); //this.texture1.get());
+        this.gl.activeTexture(this.gl.TEXTURE0);        
+		this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture1.get());
+       
 		var texture2Location = this.gl.getUniformLocation(this.program, "u_texture2")
-		this.gl.uniform1i(texture2Location, this.texture2.get());
+		this.gl.uniform1i(texture2Location, 1); //this.texture2.get());        
+        this.gl.activeTexture(this.gl.TEXTURE1);                
+		this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture2.get());
 
+		var textureFlareLocation = this.gl.getUniformLocation(this.program, "u_textureFlare")
+		this.gl.uniform1i(textureFlareLocation, 2); //this.textureFlare.get());       
+        this.gl.activeTexture(this.gl.TEXTURE2);                
+		this.gl.bindTexture(this.gl.TEXTURE_2D, this.textureFlare.get());
+        
+        
 		//--------------------------------------
 		// lights
 		for(var i = 0; i < this.scene.lights.length; i++)

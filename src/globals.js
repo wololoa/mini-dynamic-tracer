@@ -11,3 +11,6 @@ function getValue(v)
 	var number = v;
 	return isNaN(number) ? 0.0 : number.toFixed(4); // NaN bug fix
 }
+
+// TODO: write here some default configuration!
+

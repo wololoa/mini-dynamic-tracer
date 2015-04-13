@@ -47,6 +47,7 @@
 			uniform vec3 u_sunPos;
 			uniform sampler2D u_texture1;
 			uniform sampler2D u_texture2;
+            uniform sampler2D u_textureFlare;
 			// todo: move the textures to uniforms!
 			// __textures_uniforms_src__
 
@@ -257,23 +258,61 @@
 			// __materials_src__
 
             // mat_color = return vec4() (it doesn't make sense to make such a function)
-            
-            vec4 mat_textured(sampler2D sam, in vec3 pos, in vec3 bnor, in vec3 color, in float reflPower)
-            {
-                //bnor 
-                return texcube( sam, pos, bnor ) * vec4(color, reflPower);
-            }
-            
-            
-            //texcube( u_texture2, pos, nor * lemonBump(pos) * lemonBump(pos) ) * vec4(0.93, 0.2, 0.01, 1.0);
-            
-            
-            //------------------------------------------------------
-            
+
+   			float paredBump( in vec2 pos )
+			{
+				float y = mod( pos.y*1.0, 1.0 );
+				float f = smoothstep( 0.0, 0.025, y ) - smoothstep( 0.975, 1.0, y );
+				float ox = 0.5*mod(floor(pos.y*1.0),2.0);
+				float x = mod( pos.x*1.0 + ox, 1.0 );
+				f *= smoothstep( 0.0, 0.025, x ) - smoothstep( 0.975, 1.0, x );
+
+				return f;
+			}
+
 			float lemonBump( in vec3 pos )
 			{
 				 return fbm4( pos*24.0 );
 			}
+
+            vec4 mat_textured(sampler2D sam, in vec3 pos, in vec3 nor, in vec3 color, in float reflPower)
+            {
+                //bnor
+                return texcube( sam, pos, nor ) * vec4(color, reflPower);
+            }
+
+            vec4 mat_textured_bumped(sampler2D sam, in vec3 pos, in vec3 nor, out vec3 bnor, in vec3 color, in float reflPower)
+            {
+                
+                // working
+                float re = lemonBump( pos );
+                vec2 e = vec2( 0.1, 0.0 ); // roughness
+                bnor = 0.15 * normalize( vec3(  lemonBump( pos+e.xyy ) - re,
+                                                lemonBump( pos+e.yxy ) - re,
+                                                lemonBump( pos+e.yyx ) - re ) );
+                
+                
+                // pattern
+                //bnor = 0.15 * normalize(vec3(paredBump(pos.xy), paredBump(pos.yx), paredBump(pos.yy)));
+                
+                vec4 ret = mat_textured(sam, pos, nor, color, reflPower);
+                /*
+                bnor *= ret.xyz * u_sunPos;
+                nor = -bnor;
+                */
+                return ret;
+            }
+
+            //texcube( u_texture2, pos, nor * lemonBump(pos) * lemonBump(pos) ) * vec4(0.93, 0.2, 0.01, 1.0);
+
+
+            //------------------------------------------------------
+            /*
+			float lemonBump( in vec3 pos )
+			{
+				 return fbm4( pos*24.0 );
+			}
+            */
 
 			vec4 manzanaColor( in vec3 pos, in vec3 nor, out vec3 bnor )
 			{
@@ -470,17 +509,6 @@
 				return vec4( col, 2.0 ); // + (texcube(u_texture2, pos, nor) * 0.5);
 				//return texcube(u_texture2, pos, nor) * 0.01;
 				//return vec4(0.43, 0.31, 0.29, 3.0);
-			}
-
-			float paredBump( in vec2 pos )
-			{
-				float y = mod( pos.y*1.0, 1.0 );
-				float f = smoothstep( 0.0, 0.025, y ) - smoothstep( 0.975, 1.0, y );
-				float ox = 0.5*mod(floor(pos.y*1.0),2.0);
-				float x = mod( pos.x*1.0 + ox, 1.0 );
-				f *= smoothstep( 0.0, 0.025, x ) - smoothstep( 0.975, 1.0, x );
-
-				return f;
 			}
 
 			vec4 paredColor( in vec3 pos, in vec3 nor, out vec3 bnor )
@@ -726,7 +754,7 @@
 				else if( muvw.x < 2.5 ){ surfaceColor = melonColor(     muvw.yzw, nor, bnor ); surfaceColor.a = 0.0; }
                 //else if( muvw.x < 3.5 ){ surfaceColor = manzanaColor(   muvw.yzw, nor, bnor ); surfaceColor.a = 1.00; }
 				//else if( muvw.x < 3.5 ){ surfaceColor = vec4(0.96, 0.7, 0.5, 0.5); } // surfaceColor.a = 10.00; }
-                else if( muvw.x < 3.5 ){ surfaceColor = mat_textured( u_texture2, muvw.yzw, nor /* lemonBump(pos*2.0)*/, vec3(0.0, 1.0, 0.0), 1.0); }
+                else if( muvw.x < 3.5 ){ surfaceColor = mat_textured_bumped( u_texture2, muvw.yzw, nor, bnor /* lemonBump(pos*2.0)*/, vec3(0.0, 1.0, 0.0), 1.0); }
 				else if( muvw.x < 4.5 ) surfaceColor = jarronColor(    muvw.yzw, nor, bnor );
 				else if( muvw.x < 5.5 ){ surfaceColor = paredColor(     muvw.yzw, nor, bnor ); surfaceColor.a  = 0.05; }
 				else if( muvw.x < 6.5 ){ surfaceColor = lemonColor(     muvw.yzw, nor, bnor ); surfaceColor.a = 0.3; }
@@ -753,8 +781,28 @@
 					t += h;
 				}
 				return t;
-			}
+			}            
 
+            /*    
+            // failed test for a quickier way to calculate lensflare
+			float intersectQuick( in vec3 ro, in vec3 rd )
+			{
+				float precis = 0.01; // 0.001
+				float h = 1.0; //float(g_rayIterations);
+				float t = 0.0;
+                float m = 1.0;
+                vec4 info;
+				for( int i=0; i<24; i++ )
+				{
+					if( h<precis ) continue;//break;
+					h = map( ro+rd*t, info );
+					t += h;
+                    m = min(t, m);                    
+				}
+				return m; // m
+			}            
+            */
+            
 			vec3 calcNormal( in vec3 pos )
 			{
 				vec3 eps = vec3(0.002,0.0,0.0);
@@ -845,12 +893,13 @@
 
 			vec3 lensFlare( vec3 ray, vec3 lightCol, vec3 light, float lightVisible, float sky, vec2 fragCoord )
 			{
-				vec2 dirtuv = fragCoord.xy/resolution.x;
+				vec2 dirtuv = fragCoord.xy / resolution.x;
 
-				float dirt = 1.0 - texture2D( u_texture1, dirtuv ).r;
+				float dirt = /*1.0 -*/ texture2D( /*u_texture1*/ u_textureFlare, dirtuv ).r * 10.0;
 				float l = (dot(light,ray)*.5+.5);
 
-				return ( ((pow(l,30.0)+.05)*dirt*0.1 + 1.0*pow(l,200.0))*lightVisible + sky*1.0*pow(l,5000.0) )*lightCol
+                
+				return ( ((pow(l,30.0)+.05)*dirt*0.1 + 1.0*pow(l,200.0))* lightVisible + sky*1.0*pow(l,5000.0) )*lightCol
 						+ 5.0*pow(smoothstep(.9999,1.0,l),20.0) * lightVisible * normalize(lightCol);
 			}
 
@@ -909,6 +958,8 @@
 
 					vec3 sunNormalized = normalize(u_sunPos);
 
+                    
+                    // ORIGINAL single light source casting shadows
 					// lighting
 					float occ = calcAO(pos,nor) * 1.0; // perhaps the ao strength should be here and not as the ambient coefficient?
 					float bfl = clamp(-nor.y*0.8+0.2,0.0,1.0) * pow(clamp(1.0-pos.y/1.0,0.0,1.0),2.0);
@@ -920,12 +971,12 @@
 					float fre = pow( clamp( 1.0 + dot(nor,rd), 0.0, 1.0 ), 3.01 );
 					float spe = max( 0.0, pow( clamp( dot(sunNormalized, reflect(rd,nor)), 0.0, 1.0), 4.0 ) );
 					float att = 0.1 + 0.9*smoothstep( 0.975, 0.997, dot(normalize(u_sunPos - pos), sunNormalized) ); // rlight / lig  - remnant
-
+                    
 
                     //--------------------------------------------------------------------------------
                     /*
                     // added - this is a quick test to see how it would look like with several light source casting shadows
-                    vec3 lightTest= vec3(2.4, 0.1, 0.0);
+                    vec3 lightTest= vec3(2.4, 18.2, 1.0);
                     //sunNormalized = normalize(lightTest);
                     vec3 light1Normalized = normalize(lightTest);
 
@@ -935,17 +986,17 @@
 					float bce = clamp( nor.y*0.8+0.2,0.0,1.0);
 					float dif = max(dot(nor,sunNormalized),0.0) + max(dot(nor,light1Normalized),0.0);
 					float bac = max(dot(nor,normalize(vec3(-sunNormalized.x, 0.0, -sunNormalized.z))),0.0) + max(dot(nor,normalize(vec3(-light1Normalized.x, 0.0, -light1Normalized.z))),0.0);
-					float sha = directLighting( pos, nor, u_sunPos )*(0.5+0.5*occ) + directLighting( pos, nor, lightTest)*(0.5+0.5*occ);
+					float sha = directLighting( pos, nor, u_sunPos, 0.01, 0.10, vec2(0.977, 0.988) )*(0.5+0.5*occ) + directLighting( pos, nor, lightTest, 0.01, 0.10, vec2(0.9320, 0.956) )*(0.5+0.5*occ);
 					float fre = pow( clamp( 1.0 + dot(nor,rd), 0.0, 1.0 ), 3.01 );
 					float spe = max( 0.0, pow( clamp( dot(sunNormalized, reflect(rd,nor)), 0.0, 1.0), 4.0 ) ) + max( 0.0, pow( clamp( dot(light1Normalized, reflect(rd,nor)), 0.0, 1.0), 4.0 ) );
 					float att = 0.1 + 0.9*smoothstep( 0.975, 0.997, dot(normalize(u_sunPos - pos), sunNormalized) ) + 0.9*smoothstep( 0.975, 0.997, dot(normalize(vec3(0.0, 0.5, 0.0) - pos), light1Normalized) ); // rlight / lig  - remnant
-
-
-                    dif *= 0.5; // = divided number of lights
-                    bac *= 0.5;
-                    sha *= 0.5;
-                    spe *= 0.5;
-                    att *= 0.5;
+                    
+                    float numLights = 1.0;
+                    dif /= numLights;
+                    bac /= numLights;
+                    sha /= numLights;
+                    spe /= numLights;
+                    att /= numLights;
                     */
                     //---------------------------------------------------------------------------------
 
@@ -988,16 +1039,17 @@
 				//-----------------------------------------------------
 
 				//float t = interesct( ro, rd, tmin, tmax );
-				if( t > 10.0 )
+				if( t > float(g_rayIterations) * 0.1) // 10
 				{
 					// sky
 					col = vec3(0.13,.155,0.18)*(1.0-0.8*rd.y)*0.9;
 
 					// sun
 					float sundot = clamp(dot(rd, normalize(u_sunPos)), 0.0, 1.0);
-					col += 2.5 * vec3(1.0,0.7,0.4) * pow( sundot, 35.0 ); // 1. power. 2. color. 3. size.
+					col += 2.5 * vec3(1.0,0.8,0.6) * pow( sundot, 55.0 ); // 1. power. 2. color. 3. size.
 					//col += 0.25*vec3(1.0,0.8,0.6)*pow( sundot,64.0 ); // other "rings"
 					//col += 0.2*vec3(1.0,0.8,0.6)*pow( sundot,512.0 );
+
 
 					// clouds - this has to be improved
 					vec2 sc = ro.xz + rd.xz*(1000.0-ro.y)/rd.y;
@@ -1010,6 +1062,9 @@
 					//float fogFactor = exp(-pow(abs(0.23 * (gl_FragCoord.z - 1.5 + u_time)), 4.0)); // fogDensity = 0.23, 4.0 is the power
 					//fogFactor = clamp(fogFactor, 0.0, 1.0);
 					//col = mix(vec3(0.8, 0.2, 0.3), col, vec3(0.9, 0.1, 0.2));		// bgr col fog
+                    
+                    //col += lensFlare(rd, vec3(0.9,0.25,0.18), normalize(u_sunPos), /*t / float(g_rayIterations)*/ sundot, 0.1, gl_FragCoord.xy); // * 15.0; // smoothstep(0.001, 0.01, 
+                    
 				}
 
 				//-----------------------------------------------------
@@ -1017,9 +1072,20 @@
 				//-----------------------------------------------------
 				// lensflare - to be fixed
 				//vec3 lensFlare( vec3 ray, vec3 lightCol, vec3 light, float lightVisible, float sky, vec2 fragCoord )
-				//col += lensFlare(rd, vec3(0.3,0.55,0.8), light1, 2.0, -3.0, gl_FragCoord.xy);
-
-				// gamma
+                // USE * TO CREATE CRAZY APOCALIPSIS!
+                
+                float sunVisible = intersect( ro, normalize(u_sunPos), info ) * 0.001;
+                col += lensFlare(rd, vec3(1.0,0.8,0.6), normalize(u_sunPos), smoothstep(0.1, 1.0, sunVisible), 0.0, gl_FragCoord.xy); // * 15.0; // smoothstep(0.001, 0.01, 
+                
+				//col += lensFlare(rd, vec3(0.9,0.25,0.18), normalize(u_sunPos), /*t / float(g_rayIterations)*/ sundot, 0.1, gl_FragCoord.xy); // * 15.0; // smoothstep(0.001, 0.01, 
+            
+            
+                   //if(sundot > 0.1 && t > float(g_rayIterations) * 0.1)
+                   //{
+                   // col += lensFlare(rd, vec3(0.9,0.25,0.18), normalize(u_sunPos), /*t / float(g_rayIterations)*/ sundot, 0.1, gl_FragCoord.xy); // * 15.0; // smoothstep(0.001, 0.01,                    
+                   //}
+				
+                // gamma
 				col = pow( clamp(col,0.0,1.0), vec3(0.35) );
 
 				// contrast
@@ -1033,7 +1099,7 @@
 
 				// vigneting
 				col *= 0.5 + 0.5 * pow( 16.0*q.x*q.y*(1.0-q.x)*(1.0-q.y), 0.5 );
-
+                                
 				gl_FragColor = vec4( col, 1.0 );
 			}
 
