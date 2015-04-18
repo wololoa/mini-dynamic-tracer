@@ -34,21 +34,21 @@ var PointLight = GUIObject.extend({
 
 	createGUI : function()
 	{
-		var f1 = this.gui.addFolder("PointLight " + this.id); // todo> make function "get name"
-		f1.add(this, 'isStatic').name('Static').onFinishChange( this.onPropertyChanged.bind(this) );
-		f1.add(this, 'isEnabled').name('Enabled').onFinishChange( this.onPropertyChanged.bind(this) );
+		var tab = this.gui.addFolder("PointLight " + this.id); // todo> make function "get name"
+		tab.add(this, 'isStatic').name('Static').onFinishChange( this.onPropertyChanged.bind(this) );
+		tab.add(this, 'isEnabled').name('Enabled').onFinishChange( this.onPropertyChanged.bind(this) );
 
-		var f2 = f1.addFolder("Transform");
-		f2.add(this.position, 'x', -15.0, 15.0).onFinishChange( this.onPropertyChanged.bind(this) );
-		f2.add(this.position, 'y', -15.0, 15.0).onFinishChange( this.onPropertyChanged.bind(this) );
-		f2.add(this.position, 'z', -15.0, 15.0).onFinishChange( this.onPropertyChanged.bind(this) );
+		var pos = tab.addFolder("Transform");
+		pos.add(this.position, 'x', -15.0, 15.0).onFinishChange( this.onPropertyChanged.bind(this) );
+		pos.add(this.position, 'y', -15.0, 15.0).onFinishChange( this.onPropertyChanged.bind(this) );
+		pos.add(this.position, 'z', -15.0, 15.0).onFinishChange( this.onPropertyChanged.bind(this) );
 
-		f1.add(this, 'size', 0.0, 10.0).name('Size').onFinishChange( this.onPropertyChanged.bind(this) );
-		f1.add(this, 'intensity').name('Intensity').onFinishChange( this.onPropertyChanged.bind(this) );
-		f1.add(this, 'specPower').name('Spec. Power').onFinishChange( this.onPropertyChanged.bind(this) );
-		f1.addColor(this, 'color').name('Color').onFinishChange( this.onPropertyChanged.bind(this) );
+		tab.add(this, 'size', 0.0, 10.0).name('Size').onFinishChange( this.onPropertyChanged.bind(this) );
+		tab.add(this, 'intensity').name('Intensity').onFinishChange( this.onPropertyChanged.bind(this) );
+		tab.add(this, 'specPower').name('Spec. Power').onFinishChange( this.onPropertyChanged.bind(this) );
+		tab.addColor(this, 'color').name('Color').onFinishChange( this.onPropertyChanged.bind(this) );
 
-		var controller = f1.add(this, 'removeGUI').name('Delete');
+		var controller = tab.add(this, 'removeGUI').name('Delete');
 	},
 
 	removeGUI : function()

@@ -40,7 +40,7 @@ var Tracer = Entity.extend({
 
         this.textureFlare = new TextureGL(this.gl, 'lensFlare');               
 		this.texture2 = new TextureGL(this.gl, 'rock'); //, Graphics.getImage('rock'));
-		this.texture1 = new TextureGL(this.gl, 'noise2');
+		this.texture1 = new TextureGL(this.gl, 'noise3');
         
         this.canvas.style.width = Graphics.canvas.style.width;
         this.canvas.style.height = Graphics.canvas.style.height;
@@ -111,7 +111,10 @@ var Tracer = Entity.extend({
                                                                             __reflEnabled_src__:    this.scene.getReflEnabledSrc(),
                                                                             __reflRes__:            this.scene.reflRes,
 
-                                                                            __horizon_src__ :    	this.scene.getHorizonSrc(),
+                                                                            __bgr_src__:            this.scene.getBgrSrc(),
+                                                                            __horizon_src__ :    	this.scene.horizon.getSrc(),
+                                                                            __clouds_src__:         this.scene.clouds.getSrc(),
+                                                                            __fog_src__:            this.scene.fog.getSrc(),
 
 																			__lights_uniforms_src__:this.scene.getLightsUniforms(),
 																			__lights_src__ :		this.scene.getLightsSrc(),
@@ -233,7 +236,7 @@ var Tracer = Entity.extend({
 		this.gl.uniform1f(camFovLocation, this.scene.cameraFov);
 
 		var sunPosLocation = this.gl.getUniformLocation(this.program, "u_sunPos");
-		this.gl.uniform3f(sunPosLocation, this.scene.sunLightPos.x, this.scene.sunLightPos.y, this.scene.sunLightPos.z);
+		this.gl.uniform3f(sunPosLocation, this.scene.sun.lightPos.x, this.scene.sun.lightPos.y, this.scene.sun.lightPos.z);
 
 		//--------------------------------------
 		// textures               

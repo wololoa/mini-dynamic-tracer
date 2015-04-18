@@ -27,39 +27,16 @@ var Scene = GUIObject.extend({
 	cameraFov : 2.0,
 
 	// ---------- ENVIRONMENT ----------
-	isEnvEnabled : true, // set to false to fuck it all :D
+	//isEnvEnabled : true, // set to false to fuck it all :D
 	bgrColor : null,
 
-	// TODO> ADD FOG!!!!!!!!
-
 	// TODO> ADD TERRAIN!!!!!!!!!!!!!!!!
-
-	// horizon
-	horizonEnabled : true,
-	horizonStatic : true,
-	horizonColor : null,
-	horizonGradient : 8.0,
-	horizonSize : 0.10,
-
-	// clouds
-	cloudsEnabled : true,
-	cloudsStatic : true, // position missing? animation time?
-	cloudsColor : null,
-	cloudsHeight : 1000.0,
-	cloudsSizeMin : 0.23,
-	cloudsSizeMax : 0.8,
-	cloudsAmount : 0.5,
-	cloudsNoiseSize : 0.0005,
-
-	// sun
-	sunEnabled : true,
-	sunStatic : true,
-	sunColor : null,
-	sunInvSize : 5.0,
-	sunStrength : 0.5, // IN SKY!
-	sunLightPos : null, // array NOTE: THIS SHIT SHOULD BE USED FOR THE MAIN SUNLIGHT POSITION AS WELL, OR SOMETHING!!!
-	// TODO: USE THE OTHER VALUES FOR THE ACTUAL SUN LIGHT HITTING THE SCENE!
-
+    
+    sun : null,
+    horizon : null,
+    clouds : null,
+    fog : null,
+    
 	// TODO> MOON???????
 
 	// ---------- POSTPROCESSING ----------
@@ -69,7 +46,7 @@ var Scene = GUIObject.extend({
 
 	// todo> tonemapping????
 	// todo> FILMIC GRAIN! (the order forthefuck)
-	// todo> LENS FUCKIN' FLARE!
+	// todo> LENS FUCKIN' FLARE! - dirty texture, intensity, enabled - use the sun color!. extra: apocalypse fx
 
 	// contrast
 	contrastEnabled : true,
@@ -100,11 +77,10 @@ var Scene = GUIObject.extend({
 	// todo: params
 	constructor : function(gui)
 	{
-		this.bgrColor = [ 255, 255, 255 ];
-		this.sunLightPos = { x: -19.5, y: 3.5, z: -25.0 };
+		this.bgrColor = [ 128, 128, 196 ];
+		//this.sunLightPos = { x: -19.5, y: 3.5, z: -25.0 };
 		this.cameraPosition = { x: 0.9, y: 0.3, z: 1.5 };
 		this.cameraView = {x: 0.0, y: 0.2, z: 0.1 };
-        this.horizonColor = [ 255, 255, 255 ];
         this.lights = [];
 		this.callParent(gui);
 	},
@@ -117,15 +93,15 @@ var Scene = GUIObject.extend({
 
 		var showShaderController = this.gui.add(this, 'printShader').name('Debug print shader');		
 		
-		var f1 = this.gui.addFolder("GLOBALS");
-		f1.add(this, 'width', 240, 1920).name("Width").onFinishChange( this.onPropertyChanged.bind(this) );
-		f1.add(this, 'height', 120, 1920).name("Height").onFinishChange( this.onPropertyChanged.bind(this) );
-		f1.add(this, 'rayRes', 1.0, 256.0).name("Ray resolution").onFinishChange( this.onPropertyChanged.bind(this) );
-		f1.add(this, 'shadowRes', 1.0, 128.0).name("Softshadow res").onFinishChange( this.onPropertyChanged.bind(this) );
-		f1.add(this, 'aoRes', 1.0, 128.0).name("AO res").onFinishChange( this.onPropertyChanged.bind(this) );
-		f1.add(this, 'aoStrength', 0.0, 50.0).name("AO strength").onFinishChange( this.onPropertyChanged.bind(this) );
-        f1.add(this, 'reflEnabled').name("Refl. enabled").onFinishChange( this.onPropertyChanged.bind(this) );
-        f1.add(this, 'reflRes', 1.0, 64.0).name("Refl. resolution").onFinishChange( this.onPropertyChanged.bind(this) );
+		var tab = this.gui.addFolder("GLOBALS");
+		tab.add(this, 'width', 240, 1920).name("Width").onFinishChange( this.onPropertyChanged.bind(this) );
+		tab.add(this, 'height', 120, 1920).name("Height").onFinishChange( this.onPropertyChanged.bind(this) );
+		tab.add(this, 'rayRes', 1.0, 256.0).name("Ray resolution").onFinishChange( this.onPropertyChanged.bind(this) );
+		tab.add(this, 'shadowRes', 1.0, 128.0).name("Softshadow res").onFinishChange( this.onPropertyChanged.bind(this) );
+		tab.add(this, 'aoRes', 1.0, 128.0).name("AO res").onFinishChange( this.onPropertyChanged.bind(this) );
+		tab.add(this, 'aoStrength', 0.0, 50.0).name("AO strength").onFinishChange( this.onPropertyChanged.bind(this) );
+        tab.add(this, 'reflEnabled').name("Refl. enabled").onFinishChange( this.onPropertyChanged.bind(this) );
+        tab.add(this, 'reflRes', 1.0, 64.0).name("Refl. resolution").onFinishChange( this.onPropertyChanged.bind(this) );
 		//f1.open();
 
 		// todo: bring a good fps cam pretty please
@@ -142,33 +118,19 @@ var Scene = GUIObject.extend({
 		f22.add(this.cameraView, 'z', -15.0, 15.0);
 
 
-		var f3 = this.gui.addFolder("ENVIRONMENT");
-		f3.add(this, 'isEnvEnabled', true).name("Enabled").onFinishChange( this.onPropertyChanged.bind(this) );
-		f3.addColor(this, 'bgrColor').name("Bgr color").onFinishChange( this.onPropertyChanged.bind(this) );
+		var folderEnv = this.gui.addFolder("ENVIRONMENT");
+		//folderEnv.add(this, 'isEnvEnabled', true).name("Enabled").onFinishChange( this.onPropertyChanged.bind(this) );
+		folderEnv.addColor(this, 'bgrColor').name("Background").onChange( this.onPropertyChanged.bind(this) ); // onFinishChange
+        
+        
+        
+        this.sun = new Sun(folderEnv);
+        this.horizon = new Horizon(folderEnv);
+        this.clouds = new Clouds(folderEnv);
+        this.fog = new Fog(folderEnv);
 
-		var f31 = f3.addFolder("SUN");
-		//sunStatic : true,
-		//sunColor : null,
-		//sunInvSize : 5.0,
-		//sunStrength : 0.5, // IN SKY!
-		//sunLightPos : null, // array NOTE: THIS SHIT SHOULD BE USED FOR THE MAIN SUNLIGHT POSITION AS WELL, OR SOMETHING!!!
-		var sunHideController = f31.add(this, 'hideShowSun').name("Hide/Show");
-		var f311 = f31.addFolder("Position");
-		f311.add(this.sunLightPos, 'x', -25.0, 25.0).onFinishChange( this.onPropertyChanged.bind(this) );
-		f311.add(this.sunLightPos, 'y', -25.0, 25.0).listen().onFinishChange( this.onPropertyChanged.bind(this) );
-		f311.add(this.sunLightPos, 'z', -25.0, 25.0).onFinishChange( this.onPropertyChanged.bind(this) );
-
-
-		var f32 = f3.addFolder("CLOUDS");
-
-		var f33 = f3.addFolder("HORIZON");
-		f33.add(this, 'horizonEnabled', true).onFinishChange( this.onPropertyChanged.bind(this) );
-		//f33.add(this, 'horizonStatic', true); // TODO!
-        f33.addColor(this, 'horizonColor').onFinishChange( this.onPropertyChanged.bind(this) );
-        f33.add(this, 'horizonGradient', 0.0, 16.0).onFinishChange( this.onPropertyChanged.bind(this) );
-        f33.add(this, 'horizonSize', 0.0, 1.0).onFinishChange( this.onPropertyChanged.bind(this) );
-		f33.open();
-
+        
+		//var f32 = f3.addFolder("CLOUDS");
 		//this.addPointLight();
         //this.recompile = true;
 	},
@@ -190,7 +152,7 @@ var Scene = GUIObject.extend({
 
 		if(shouldRecompileLights === false)
 		{
-			ret = this.recompile;
+			ret = this.recompile || this.sun.shouldRecompile() || this.horizon.shouldRecompile() || this.clouds.shouldRecompile() || this.fog.shouldRecompile();
 			this.recompile = false;
 		}
 
@@ -222,18 +184,6 @@ var Scene = GUIObject.extend({
 		// todo
 	},
 
-	hideShowSun : function()
-	{
-		if(this.sunLightPos.y > 0)
-		{
-			this.sunLightPos.y = -10.0;
-		}
-		else
-		{
-			this.sunLightPos.y = 3.5;
-		}
-	},
-	
 	update : function(delta)
 	{
 		this.callParent(delta);
@@ -271,6 +221,15 @@ var Scene = GUIObject.extend({
 
 	//------------------------------------------------
 	// src
+    getBgrSrc : function()
+    {
+		var r = getValue(this.bgrColor[0] / 255.0);
+		var g = getValue(this.bgrColor[1] / 255.0);
+		var b = getValue(this.bgrColor[2] / 255.0);        
+        
+        var src = 'col = vec3('+ r +','+ g +','+ b +')*(1.0-0.8*rd.y);';
+        return src;
+    },
 
     getReflEnabledSrc : function()
     {
@@ -338,24 +297,9 @@ var Scene = GUIObject.extend({
 		}
 
 		return src;
-	},
+	}
 
     // environment
-    getHorizonSrc : function()
-    {
-        var src = '';
-
-        // TODO: make this dynamic!
-		// horizonStatic : true,
-        if(this.horizonEnabled)
-        {
-        	var r = getValue(this.horizonColor[0] / 255.0);
-            var g = getValue(this.horizonColor[1] / 255.0);
-            var b = getValue(this.horizonColor[2] / 255.0);
-            src = 'col = mix( col, vec3('+ r +','+ g +','+ b +'), pow( 1.0 - max(rd.y,'+ getValue(this.horizonSize) +'), '+ getValue(this.horizonGradient) +') );';
-        }
-        return src;
-    }
 
     /*
     getCloudsSrc : function()
