@@ -112,14 +112,27 @@ var Tracer = Entity.extend({
                                                                             __reflRes__:            this.scene.reflRes,
 
                                                                             __bgr_src__:            this.scene.getBgrSrc(),
-                                                                            __horizon_src__ :    	this.scene.horizon.getSrc(),
+                                                                            __sun_src__:            this.scene.sun.getSrc(),
                                                                             __clouds_src__:         this.scene.clouds.getSrc(),
+                                                                            __horizon_src__ :    	this.scene.horizon.getSrc(),                                                                            
                                                                             __fog_src__:            this.scene.fog.getSrc(),
 
 																			__lights_uniforms_src__:this.scene.getLightsUniforms(),
 																			__lights_src__ :		this.scene.getLightsSrc(),
-																			__lights_final_src__:	this.scene.getLightsFinalSrc()
-
+																			__lights_final_src__:	this.scene.getLightsFinalSrc(),
+                                                                            
+                                                                            // used on "directLighting"
+                                                                            __sun_aperture__ :      this.scene.sun.aperture, 
+                                                                            __sun_intensity__:      this.scene.sun.intensity,
+                                                                            __sun_atten_min__:      this.scene.sun.attenMin, 
+                                                                            __sun_atten_max__:      this.scene.sun.attenMax,
+                                                                            
+                                                                            __sun_dif_src__ :       this.scene.sun.getDifSrc(),
+                                                                            __sun_bac_src__:        this.scene.sun.getBacSrc(),
+                                                                            __sun_bfl_src__:        this.scene.sun.getBflSrc(),
+                                                                            __sun_bce_src__:        this.scene.sun.getBceSrc(),
+                                                                            __sun_spe_src__:        this.scene.sun.getSpeSrc()
+                                                                            
 																			// sky/background
 																			// todo: add the missing stuff here
 																		});
