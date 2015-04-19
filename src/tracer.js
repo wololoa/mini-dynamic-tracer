@@ -131,6 +131,7 @@ var Tracer = Entity.extend({
                                                                             __sun_bac_src__:        this.scene.sun.getBacSrc(),
                                                                             __sun_bfl_src__:        this.scene.sun.getBflSrc(),
                                                                             __sun_bce_src__:        this.scene.sun.getBceSrc(),
+                                                                            __sun_amb_src__:        this.scene.sun.getAmbSrc(),
                                                                             __sun_spe_src__:        this.scene.sun.getSpeSrc()
                                                                             
 																			// sky/background

@@ -4,6 +4,7 @@ var Sun = GUIObject.extend({
 
     isEnabled : true,
     isStatic : true,
+    drawInSky : true,
     invSize : 125.0,
     power : 2.5, // in sky!
     aperture : 0.01,
@@ -16,6 +17,7 @@ var Sun = GUIObject.extend({
     colorBac : null,
     colorBfl : null,    
     colorBce : null,
+    colorAmb : null,
     colorSpe : null,
     
     // this should be encapsulated inside a flare object, but this is simpler and quickier for now
@@ -34,6 +36,7 @@ var Sun = GUIObject.extend({
         this.colorBac = [ 188, 32, 22 ];
         this.colorBfl = [ 102, 12, 6 ];
         this.colorBce = [ 32, 32, 32 ];
+        this.colorAmb = [ 64, 64, 64 ];
         this.colorSpe = [ 8, 8, 8 ];
         this.flareColor = [ 255, 235, 232 ];
         this.callParent(gui);
@@ -43,17 +46,19 @@ var Sun = GUIObject.extend({
     {
 		var tab = this.gui.addFolder("SUN");
 		var sunHideController = tab.add(this, 'hideShowSun').name("Hide/Show");
+        tab.add(this, 'drawInSky').name("Draw in sky").onFinishChange( this.onPropertyChanged.bind(this) );
 		tab.add(this, 'invSize', 1.0, 250.0).name("Inv. size (sky)").onFinishChange( this.onPropertyChanged.bind(this) );
 		tab.add(this, 'power', 1.0, 15.0).name("Power (sky)").onFinishChange( this.onPropertyChanged.bind(this) );
-		tab.add(this, 'aperture', 0.0, 1.0).name("Shadow Apert.").onFinishChange( this.onPropertyChanged.bind(this) );
-		tab.add(this, 'intensity', 0.0, 50.0).name("Shadow Inten.").onFinishChange( this.onPropertyChanged.bind(this) );
+		tab.add(this, 'aperture', 0.0, 1.0).name("Sha. inv. shar.").onFinishChange( this.onPropertyChanged.bind(this) );
+		tab.add(this, 'intensity', 0.0, 50.0).name("Sha. inv. soft.").onFinishChange( this.onPropertyChanged.bind(this) );
     	tab.add(this, 'attenMin', 0.0, 1.0).name("Att. (min)").onFinishChange( this.onPropertyChanged.bind(this) );
 		tab.add(this, 'attenMax', 0.0, 1.0).name("Att. (max)").onFinishChange( this.onPropertyChanged.bind(this) );              
-        tab.addColor(this, 'color').name("Color").onChange( this.onPropertyChanged.bind(this) ); // diffuse
+        tab.addColor(this, 'color').name("Color Dif").onChange( this.onPropertyChanged.bind(this) ); // diffuse
         tab.addColor(this, 'colorBac').name("Color Bac").onChange( this.onPropertyChanged.bind(this) );
         tab.addColor(this, 'colorBfl').name("Color Bfl").onChange( this.onPropertyChanged.bind(this) );
-        tab.addColor(this, 'colorBce').name("Color Bce").onChange( this.onPropertyChanged.bind(this) );
-        tab.addColor(this, 'colorSpe').name("Color Spe").onChange( this.onPropertyChanged.bind(this) );
+        tab.addColor(this, 'colorBce').name("Shadow").onChange( this.onPropertyChanged.bind(this) );
+        tab.addColor(this, 'colorAmb').name("Ambient").onChange( this.onPropertyChanged.bind(this) );
+        tab.addColor(this, 'colorSpe').name("Specular").onChange( this.onPropertyChanged.bind(this) );
         
         var pos = tab.addFolder("Position");
 		pos.add(this.lightPos, 'x', -35.0, 35.0).onFinishChange( this.onPropertyChanged.bind(this) );
@@ -77,15 +82,18 @@ var Sun = GUIObject.extend({
     {
         var src = '';
         
-        var r = getValue(this.color[0] / 255.0);
-        var g = getValue(this.color[1] / 255.0);
-        var b = getValue(this.color[2] / 255.0);        
-        var power = getValue(this.power);
-        var invSize = getValue(this.invSize);
-        
-        //if(this.enabled) // todo
-		src += 'float sundot = clamp(dot(rd, normalize(u_sunPos)), 0.0, 1.0);';
-		src += 'col += '+ power +' * vec3('+ r +', '+ g +', '+ b +') * pow( sundot, '+ invSize +' );\n';  // 1. power. 2. color. 3. size.                    
+        if(this.drawInSky)
+        {
+            var r = getValue(this.color[0] / 255.0);
+            var g = getValue(this.color[1] / 255.0);
+            var b = getValue(this.color[2] / 255.0);        
+            var power = getValue(this.power);
+            var invSize = getValue(this.invSize);
+            
+            //if(this.enabled) // todo
+            src += 'float sundot = clamp(dot(rd, normalize(u_sunPos)), 0.0, 1.0);';
+            src += 'col += '+ power +' * vec3('+ r +', '+ g +', '+ b +') * pow( sundot, '+ invSize +' );\n';  // 1. power. 2. color. 3. size.                    
+        }
         
         return src;
     },
@@ -108,6 +116,11 @@ var Sun = GUIObject.extend({
     getBceSrc : function()
     {
         return getVector3Array(this.colorBce);
+    },
+    
+    getAmbSrc : function()
+    {
+        return getVector3Array(this.colorAmb);
     },
     
     getSpeSrc : function()
