@@ -23,7 +23,7 @@ var Scene = GUIObject.extend({
 	// ---------- CAMERA ----------
 	cameraPosition : null,
 	cameraView : null,
-	cameraSpeed : 2.0,
+	cameraSpeed : 4.0,
 	cameraFov : 2.0,
 
 	// ---------- ENVIRONMENT ----------
